@@ -555,6 +555,9 @@
         </div>
       );
 
+      // 加入這行來定義 currentBgImage，避免錯誤
+      const currentBgImage = LEVELS[currentLevel]?.bgImage;
+
       return (
         <div className="min-h-screen bg-slate-100 text-slate-800 font-sans selection:bg-blue-200 flex items-center justify-center p-4 sm:p-8">
           <audio ref={audioPlayerRef} className="hidden" />
