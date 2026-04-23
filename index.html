@@ -76,6 +76,7 @@
         character: "街市檔主",
         context: "街市環境非常嘈吵，檔主語速飛快地跟你結算剛買的菜錢...",
         clearText: "婆婆！蘋果四舊，廁紙買二送一，仲有一盒豆腐，唔該你六十二個三。",
+        partialText: "婆婆！蘋果 _ 舊，_ 紙買 _ 送一，仲有一盒 _ 腐，唔該你 _ 十 _ 個三。",
         questions: [
           { text: "買這些東西總共要付多少錢？", options: ["四十二個三", "六十二個三", "十二個三"], correctIndex: 1 },
           { text: "蘋果有幾舊？", options: ["兩舊", "四舊", "六舊"], correctIndex: 1 },
@@ -94,6 +95,7 @@
         character: "熱心街坊",
         context: "天氣很熱，你在街上迷路了，向一位腳步匆忙的街坊問路...",
         clearText: "社區中心啊？你過馬路先，跟住直行就見到商場，咁轉右就會見到社區中心㗎啦。",
+        partialText: "社區中心啊？你過＿＿先，跟住＿＿就見到＿＿，咁轉＿＿就會見到社區中心㗎啦。",
         questions: [
           { text: "去社區中心第一步要做咩？", options: ["轉左", "過馬路", "直行"], correctIndex: 1 },
           { text: "過咗馬路之後會見到咩建築物？", options: ["街市", "商場", "學校"], correctIndex: 1 },
@@ -112,6 +114,7 @@
         character: "診所護士",
         context: "診所內有其他病人聊天的聲音。護士戴著口罩，低著頭看病歷對你說...",
         clearText: "伯伯，呢隻藍色藥丸每日食三次，每次一粒。食完飯之後先好食啊。幫你約咗下個禮拜二覆診㗎啦。",
+        partialText: "伯伯，呢隻＿色藥丸每日食＿＿次，每次一粒。食完＿之後先好食啊。幫你約咗下個禮拜＿＿覆診㗎啦。",
         questions: [
           { text: "呢隻藥丸係咩顏色？", options: ["紅色", "藍色", "白色"], correctIndex: 1 },
           { text: "護士吩咐幾時要食藥？", options: ["食飯前", "食完飯之後", "臨瞓前"], correctIndex: 1 },
@@ -132,7 +135,7 @@
       const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
       const [timeLeft, setTimeLeft] = useState(20);
       const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-      const [activeTools, setActiveTools] = useState({ slow: false, clear: false, visual: false });
+      const [failCount, setFailCount] = useState(0); // 新增：追蹤失敗次數來進行三次調整
       const [shuffledOptions, setShuffledOptions] = useState([]);
       
       const [customAudioMuffled, setCustomAudioMuffled] = useState(null);
@@ -212,12 +215,14 @@
 
       const playRealAudio = () => {
         stopAudio();
-        const targetUrl = activeTools.clear ? customAudioClear : customAudioMuffled;
+        const isSlow = failCount >= 1; // 錯 1 次：放慢語速
+        const isClear = failCount >= 3; // 錯 3 次：播放清晰版
+        const targetUrl = isClear ? customAudioClear : customAudioMuffled;
         
         if (targetUrl && audioPlayerRef.current) {
           setIsPlayingAudio(true);
           audioPlayerRef.current.src = targetUrl;
-          audioPlayerRef.current.playbackRate = activeTools.slow ? 0.75 : 1.0; 
+          audioPlayerRef.current.playbackRate = isSlow ? 0.75 : 1.0; 
           audioPlayerRef.current.play();
           
           audioPlayerRef.current.onended = () => setIsPlayingAudio(false);
@@ -227,14 +232,14 @@
           const level = LEVELS[currentLevel];
           let textToSpeak = level.clearText;
 
-          if (!activeTools.clear) {
+          if (!isClear) {
             textToSpeak = textToSpeak.replace(/四/g, '二').replace(/十/g, '一').replace(/廁紙/g, '衣紙').replace(/商場/g, '休場').replace(/轉右/g, '轉後');
           }
 
           const utterance = new SpeechSynthesisUtterance(textToSpeak);
           utterance.lang = 'zh-HK';
-          utterance.rate = activeTools.slow ? 0.8 : (activeTools.clear ? 1.0 : 1.3);
-          utterance.pitch = activeTools.clear ? 1.0 : 0.4;
+          utterance.rate = isSlow ? 0.8 : (isClear ? 1.0 : 1.3);
+          utterance.pitch = isClear ? 1.0 : 0.4;
 
           utterance.onend = () => setIsPlayingAudio(false);
           utterance.onerror = () => setIsPlayingAudio(false);
@@ -246,6 +251,7 @@
       // --- 遊戲流程控制 ---
       const startGame = () => {
         setCurrentQuestionIdx(0);
+        setFailCount(0); // 開始時重置失敗次數
         setGameState('playing');
         startTimer();
       };
@@ -287,14 +293,8 @@
       };
 
       const handleFail = (isTimeout) => {
+        setFailCount(prev => prev + 1); // 答錯時增加失敗次數
         setGameState('failed');
-      };
-
-      const applyTool = (toolName) => {
-        setActiveTools(prev => ({ ...prev, [toolName]: true }));
-        setGameState('playing');
-        setCurrentQuestionIdx(0); 
-        startTimer();
       };
 
       const nextLevel = () => {
@@ -304,7 +304,7 @@
           setCustomAudioClear(null);
           setIsLoadingMuffled(true);
           setIsLoadingClear(true);
-          setActiveTools({ slow: false, clear: false, visual: false });
+          setFailCount(0); // 換關卡時重置失敗次數
           setCurrentQuestionIdx(0);
           setCurrentLevel(prev => prev + 1);
           setGameState('intro');
@@ -316,7 +316,7 @@
       const resetGame = () => {
         setCurrentLevel(0);
         setCurrentQuestionIdx(0);
-        setActiveTools({ slow: false, clear: false, visual: false });
+        setFailCount(0); // 重置失敗次數
         setGameState('intro');
       };
 
@@ -397,6 +397,11 @@
         const level = LEVELS[currentLevel];
         const currentQ = level.questions[currentQuestionIdx];
         
+        // 判斷當前該啟用的輔助
+        const isSlow = failCount >= 1;
+        const isVisual = failCount >= 2;
+        const isClear = failCount >= 3;
+
         return (
           <div className="flex flex-col h-full animate-fade-in max-w-2xl mx-auto w-full p-4 z-10 relative">
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 bg-white/95 backdrop-blur shadow-sm p-4 rounded-xl border border-gray-100">
@@ -418,8 +423,9 @@
               <div className="absolute inset-0 bg-white/20 backdrop-blur-[2px] z-0"></div>
 
               <div className="absolute top-4 left-4 flex gap-2 z-10">
-                {activeTools.slow && <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-bold shadow">🐢 語速放慢</span>}
-                {activeTools.clear && <span className="bg-teal-500 text-white text-xs px-2 py-1 rounded-full font-bold shadow">✨ 清晰咬字</span>}
+                {isSlow && <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-bold shadow">🐢 語速放慢</span>}
+                {isVisual && <span className="bg-amber-500 text-white text-xs px-2 py-1 rounded-full font-bold shadow">👁️ 視覺輔助</span>}
+                {isClear && <span className="bg-teal-500 text-white text-xs px-2 py-1 rounded-full font-bold shadow">✨ 清晰咬字</span>}
               </div>
 
               <button 
@@ -441,9 +447,12 @@
                 )}
               </button>
               
-              {activeTools.visual && (
+              {isVisual && (
                 <div className="mt-6 p-4 bg-white/95 backdrop-blur border-2 border-yellow-400 rounded-lg max-w-md w-full text-center animate-fade-in shadow-lg z-10 relative">
-                  <p className="text-xl font-black text-gray-800 tracking-wider">{level.clearText}</p>
+                  <p className="text-xl font-black text-gray-800 tracking-wider">
+                    {/* 錯2次顯示部分文字，錯3次顯示完整清晰文字 */}
+                    {isClear ? level.clearText : level.partialText}
+                  </p>
                 </div>
               )}
             </div>
@@ -464,6 +473,13 @@
 
       const renderFailed = () => {
         const level = LEVELS[currentLevel];
+        
+        // 根據失敗次數決定要顯示的系統提示訊息
+        let adjustmentMessage = "";
+        if (failCount === 1) adjustmentMessage = "🐢 系統已自動為您調整：放慢語速";
+        else if (failCount === 2) adjustmentMessage = "👁️ 系統已自動為您調整：提供部分字幕輔助";
+        else if (failCount >= 3) adjustmentMessage = "✨ 系統已自動為您調整：清晰咬字 (播放清晰錄音與完整字幕)";
+
         return (
           <div className="flex flex-col items-center justify-center h-full p-6 animate-fade-in text-center max-w-xl mx-auto z-10 relative">
             <div className="bg-white/95 backdrop-blur p-8 rounded-3xl shadow-xl w-full border border-gray-100">
@@ -480,40 +496,24 @@
                   <p className="text-gray-800 italic font-bold">「{level.npcReaction}」</p>
                 </div>
               </div>
+
+              {/* 系統自動調整提示框 */}
+              {adjustmentMessage && (
+                <div className="bg-blue-50 border-2 border-blue-200 p-4 rounded-xl w-full text-left mb-6 animate-pulse">
+                  <p className="text-sm font-bold text-blue-700">{adjustmentMessage}</p>
+                  <p className="text-xs text-blue-600 mt-1">請使用新的溝通方式重新挑戰本題！</p>
+                </div>
+              )}
+
               <div className="flex gap-4 w-full">
-                <button onClick={() => { setGameState('playing'); setCurrentQuestionIdx(0); startTimer(); }} className="flex-1 py-4 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition">從第一題重試</button>
-                <button onClick={() => setGameState('tools')} className="flex-1 py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition flex items-center justify-center gap-2 shadow-lg shadow-blue-200"><Settings2 size={20} /> 調整溝通方式</button>
+                <button onClick={() => { setGameState('playing'); startTimer(); }} className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition flex items-center justify-center gap-2 shadow-lg shadow-blue-200">
+                  <Settings2 size={20} /> 使用新方式重試本題
+                </button>
               </div>
             </div>
           </div>
         );
       };
-
-      const renderTools = () => (
-        <div className="flex flex-col items-center justify-center h-full p-6 animate-fade-in max-w-2xl mx-auto z-10 relative">
-          <div className="bg-white/95 backdrop-blur p-8 rounded-3xl shadow-xl w-full border border-gray-100">
-            <h2 className="text-2xl font-bold text-gray-800 mb-2 text-center">解鎖同理心溝通法</h2>
-            <p className="text-gray-600 mb-8 text-center text-sm font-medium">你可以主動調整溝通方式來協助長者。請選擇一種工具：</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full mb-8">
-              <button onClick={() => applyTool('slow')} className={`flex flex-col items-center p-6 bg-white border-2 rounded-2xl hover:bg-blue-50 transition gap-4 group shadow-sm ${activeTools.slow ? 'border-blue-500 ring-2 ring-blue-200 bg-blue-50' : 'border-blue-100 hover:border-blue-500'}`}>
-                <div className="p-3 bg-blue-100 text-blue-600 rounded-full group-hover:scale-110 transition"><Clock size={28} /></div>
-                <span className="font-bold text-gray-800">放慢語速</span>
-              </button>
-              <button onClick={() => applyTool('clear')} className={`flex flex-col items-center p-6 bg-white border-2 rounded-2xl hover:bg-teal-50 transition gap-4 group shadow-sm ${activeTools.clear ? 'border-teal-500 ring-2 ring-teal-200 bg-teal-50' : 'border-teal-100 hover:border-teal-500'}`}>
-                <div className="p-3 bg-teal-100 text-teal-600 rounded-full group-hover:scale-110 transition"><Volume2 size={28} /></div>
-                <span className="font-bold text-gray-800">清晰咬字</span>
-              </button>
-              <button onClick={() => applyTool('visual')} className={`flex flex-col items-center p-6 bg-white border-2 rounded-2xl hover:bg-amber-50 transition gap-4 group shadow-sm ${activeTools.visual ? 'border-amber-500 ring-2 ring-amber-200 bg-amber-50' : 'border-amber-100 hover:border-amber-500'}`}>
-                <div className="p-3 bg-amber-100 text-amber-600 rounded-full group-hover:scale-110 transition"><Eye size={28} /></div>
-                <span className="font-bold text-gray-800">視覺輔助</span>
-              </button>
-            </div>
-            <div className="text-center">
-              <button onClick={() => { setGameState('playing'); setCurrentQuestionIdx(0); startTimer(); }} className="text-gray-500 hover:text-gray-700 underline font-bold">套用並返回關卡 (從第一題開始)</button>
-            </div>
-          </div>
-        </div>
-      );
 
       const renderSuccess = () => {
         const isLastLevel = currentLevel === LEVELS.length - 1;
@@ -562,10 +562,10 @@
             className="w-full max-w-3xl aspect-[4/3] min-h-[600px] rounded-[2rem] shadow-2xl overflow-hidden relative border border-gray-200 flex flex-col bg-cover bg-center transition-all duration-700"
             style={{ backgroundColor: '#f8fafc' }}
           >
+            {currentBgImage && <div className="absolute inset-0 bg-white/70 backdrop-blur-sm z-0 pointer-events-none"></div>}
             {gameState === 'intro' && renderIntro()}
             {gameState === 'playing' && renderPlaying()}
             {gameState === 'failed' && renderFailed()}
-            {gameState === 'tools' && renderTools()}
             {gameState === 'success' && renderSuccess()}
             {gameState === 'end' && renderEnd()}
           </div>
